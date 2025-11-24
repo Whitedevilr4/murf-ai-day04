@@ -1,0 +1,38 @@
+[
+  {
+    "id": "variables",
+    "title": "Variables",
+    "summary": "Variables store values in a program so you can reuse or change them later without rewriting the value everywhere.",
+    "sample_question": "What is a variable and why is it useful?"
+  },
+  {
+    "id": "loops",
+    "title": "Loops",
+    "summary": "Loops let you repeat an action multiple times, either a fixed number of times or until a condition changes.",
+    "sample_question": "Explain the difference between a for loop and a while loop."
+  },
+  {
+    "id": "html_basics",
+    "title": "HTML Basics",
+    "summary": "HTML (HyperText Markup Language) is the standard language used to structure content on web pages using elements like headings, paragraphs, links, and images.",
+    "sample_question": "What is HTML and what kinds of things can you define with it on a web page?"
+  },
+  {
+    "id": "html_structure",
+    "title": "HTML Page Structure",
+    "summary": "A basic HTML page usually includes a doctype, an html element, a head section for metadata, and a body section that holds the visible content.",
+    "sample_question": "Describe the main parts of a basic HTML page structure."
+  },
+  {
+    "id": "css_basics",
+    "title": "CSS Basics",
+    "summary": "CSS (Cascading Style Sheets) is used to style and layout HTML elements, controlling things like colors, fonts, spacing, and positioning.",
+    "sample_question": "What is CSS and why do we use it alongside HTML?"
+  },
+  {
+    "id": "css_selectors",
+    "title": "CSS Selectors",
+    "summary": "CSS selectors are patterns used to choose which HTML elements a style rule applies to, such as by tag name, class, id, or more complex combinations.",
+    "sample_question": "What is a CSS selector? Give an example of when you might use a class selector."
+  }
+]

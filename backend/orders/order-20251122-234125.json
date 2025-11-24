@@ -1,0 +1,9 @@
+{
+  "drinkType": "cappuccino",
+  "size": "small",
+  "milk": "whole milk",
+  "extras": [],
+  "name": "Rajdeep",
+  "summary": "Rajdeep's order: a small cappuccino with whole milk and no extras.",
+  "created_at": "2025-11-22T23:41:25"
+}

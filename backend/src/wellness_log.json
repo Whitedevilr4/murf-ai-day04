@@ -1,0 +1,47 @@
+[
+  {
+    "timestamp": "2025-11-23T22:09:14",
+    "mood": "test-mood",
+    "energy": "medium",
+    "stresses": "just testing",
+    "goals": [
+      "finish setup"
+    ],
+    "self_care": [
+      "drink water"
+    ],
+    "summary": "Test entry for the wellness log."
+  },
+  {
+    "timestamp": "2025-11-23T17:46:03+00:00",
+    "mood": "great",
+    "energy": "good",
+    "stresses": "none",
+    "goals": [],
+    "self_care": [],
+    "summary": "Today's mood is great with no stress, and no specific goals or self-care activities planned. Just enjoying feeling good."
+  },
+  {
+    "timestamp": "2025-11-23T17:47:59+00:00",
+    "mood": "neutral",
+    "energy": "neutral",
+    "stresses": "none",
+    "goals": [],
+    "self_care": [],
+    "summary": "The user reported no specific mood, energy, stresses, goals, or self-care intentions for today."
+  },
+  {
+    "timestamp": "2025-11-23T17:53:33+00:00",
+    "mood": "good",
+    "energy": "very high",
+    "stresses": "none",
+    "goals": [
+      "do nothing"
+    ],
+    "self_care": [
+      "relaxing",
+      "doing nothing"
+    ],
+    "summary": "Today you are feeling good with very high energy. Your main intention is to relax and do nothing, which you see as a great form of self-care."
+  }
+]
