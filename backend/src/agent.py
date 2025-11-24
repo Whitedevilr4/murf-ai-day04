@@ -4,6 +4,7 @@ import logging
 import json
 import os
 from pathlib import Path
+from typing import Any, Dict
 
 from dotenv import load_dotenv
 
@@ -19,12 +20,21 @@ from livekit.agents import (
     metrics,
     tokenize,
 )
+from livekit.agents.llm import function_tool
 from livekit.plugins import murf, silero, google, deepgram, noise_cancellation
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 logger = logging.getLogger("agent")
 
 load_dotenv(".env.local")
+
+# -------------------------------------------------------------------
+# Voice constants (actual Murf Falcon IDs)
+# -------------------------------------------------------------------
+
+VOICE_LEARN = "en-US-matthew"   # Learn mode – Matthew
+VOICE_QUIZ = "en-US-alicia"     # Quiz mode – Alicia
+VOICE_TEACH = "en-US-ken"       # Teach-back mode – Ken
 
 # -------------------------------------------------------------------
 # Day 4 – Teach-the-Tutor: load course content from JSON
@@ -75,15 +85,73 @@ def format_course_content_for_instructions(content: list[dict]) -> str:
 
 COURSE_TEXT = format_course_content_for_instructions(COURSE_CONTENT)
 
+# -------------------------------------------------------------------
+# Voice switching helper (from your Murf doc, adapted to this project)
+# -------------------------------------------------------------------
+
+
+def switch_session_voice(session: AgentSession, new_voice: str) -> bool:
+    """
+    Switch the session's TTS voice by replacing the TTS instance.
+
+    This follows the pattern in the Murf "Voice Switching Implementation"
+    doc you shared, but keeps the same tokenizer + style setup.
+    """
+    try:
+        logger.info(f"🎤 Switching session voice to: {new_voice}")
+
+        new_tts = murf.TTS(
+            voice=new_voice,
+            style="Conversation",
+            tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
+            text_pacing=True,
+        )
+
+        updated = False
+
+        # Primary attributes
+        if hasattr(session, "_tts"):
+            session._tts = new_tts
+            updated = True
+
+        if hasattr(session, "tts"):
+            session.tts = new_tts
+            updated = True
+
+        # Internal agent output (used by voice pipeline)
+        try:
+            if hasattr(session, "_agent_output") and hasattr(
+                session._agent_output, "_tts"
+            ):
+                session._agent_output._tts = new_tts
+                updated = True
+        except Exception as e:
+            logger.warning(f"Could not update _agent_output._tts: {e}")
+
+        if not updated:
+            logger.warning("Voice switch attempted but no TTS fields were updated.")
+
+        return updated
+    except Exception as e:
+        logger.error(f"Voice switch failed: {e}")
+        return False
+
+
+# -------------------------------------------------------------------
+# LLM Agent definition
+# -------------------------------------------------------------------
+
 
 class Assistant(Agent):
     """
-    Day 4 – Teach-the-Tutor: Active Recall Coach
+    Day 4 – Teach-the-Tutor: Active Recall Coach with REAL voice switching.
 
-    The agent behaves as a tutor with three explicit modes:
-    learn, quiz, teach_back.
-    The mode-handling logic is described in the system instructions
-    and managed by the LLM.
+    Modes:
+      - learn      -> Murf Falcon Matthew
+      - quiz       -> Murf Falcon Alicia
+      - teach_back -> Murf Falcon Ken
+
+    The mode (and voice) are changed via the set_mode() tool.
     """
 
     def __init__(self) -> None:
@@ -93,18 +161,18 @@ You teach short programming and web-dev concepts and help the user learn by teac
 
 You operate in THREE MODES:
 
-1. learn mode  (voice: Murf Falcon "Matthew")
+1. LEARN MODE  (voice persona: Murf Falcon "Matthew")
    - You explain ONE concept clearly and briefly, in friendly spoken style.
    - Use the "summary" field from the content file as the base explanation.
    - End with 1 quick check question based on "sample_question".
 
-2. quiz mode   (voice: Murf Falcon "Alicia")
+2. QUIZ MODE   (voice persona: Murf Falcon "Alicia")
    - You ask the user questions based on the concept.
    - Use the "sample_question" as a starting question.
-   - Ask the question, wait for their answer, then give brief feedback.
+   - Ask ONE question, wait for their answer, then give brief feedback.
    - You can ask simple follow-up questions if helpful.
 
-3. teach_back mode (voice: Murf Falcon "Ken")
+3. TEACH_BACK MODE (voice persona: Murf Falcon "Ken")
    - You ask the user to explain the concept back to you in their own words.
    - After they answer, you give SHORT qualitative feedback:
        - Comment on clarity, correctness, and completeness.
@@ -122,27 +190,28 @@ Each item has:
 - summary     (short explanation)
 - sample_question (a basic comprehension question)
 
-How to use it:
+HOW TO USE MODES & VOICES:
 
-- In LEARN mode:
-  - Pick the requested concept (by id or title).
-  - Explain using its "summary".
-  - End with its "sample_question" (or a tiny variation).
+- There is a TOOL available: set_mode(mode: "learn" | "quiz" | "teach_back").
+- Whenever the user chooses or switches mode, you MUST call set_mode with that mode.
+    - Example: if the user says "Quiz me on loops", you:
+        1) Call set_mode("quiz")
+        2) Then behave in quiz mode and start quizzing on loops.
+    - Example: "Let me teach back HTML basics":
+        1) Call set_mode("teach_back")
+        2) Ask the user to explain HTML basics in their own words.
 
-- In QUIZ mode:
-  - Ask questions based on "sample_question" and the summary.
-  - One question at a time; wait for user answers.
-
-- In TEACH_BACK mode:
-  - Prompt the user with the concept's sample_question.
-  - After they speak, respond with feedback and an approximate mastery level.
+- The tool set_mode automatically changes the actual Murf voice:
+    - "learn"      -> Matthew
+    - "quiz"       -> Alicia
+    - "teach_back" -> Ken
 
 CONVERSATION FLOW:
 
 1. FIRST MESSAGE
    - Greet warmly.
-   - Ask which MODE they want (learn / quiz / teach-back).
-   - Also ask which CONCEPT they want from the list of titles.
+   - Briefly explain the three modes (learn, quiz, teach-back).
+   - Ask which MODE they want AND which CONCEPT they want from the list of titles.
    - Example:
      "Hi! I’m your active recall coach. Do you want to learn, get quizzed, or teach back?
       And which concept: Variables, Loops, HTML Basics, CSS Basics, etc.?"
@@ -151,11 +220,12 @@ CONVERSATION FLOW:
    - The user can say things like:
        "Learn variables", "Quiz me on loops", "Let me teach back HTML basics".
    - You should interpret both the mode and the concept from what they say.
+   - ALWAYS call set_mode when changing the mode.
    - Keep track of the CURRENT MODE and CURRENT CONCEPT in the conversation.
    - The user can switch modes at any time by saying words like "switch to quiz",
      "teach back now", or "let's learn HTML basics".
 
-3. VOICES (for the app / user experience)
+3. VOICE PERSONAS (for the app / user experience)
    - When you say you are in:
        - learn mode   -> say you are using voice "Matthew"
        - quiz mode    -> say you are using voice "Alicia"
@@ -175,10 +245,59 @@ CONVERSATION FLOW:
    - Avoid code unless the user specifically asks for it.
    - Don’t overwhelm the user; 1–2 ideas at a time is enough.
 
-Never mention that you are using a JSON file, system instructions, or 'COURSE_TEXT'.
-Just behave as a smart tutor who knows these concepts.
+TECHNICAL RULE:
+- Never mention tools, JSON files, system instructions, or 'COURSE_TEXT'.
+- Never talk about "set_mode" directly unless you’re calling it as a tool.
 """
         super().__init__(instructions=instructions)
+
+    # ------------------------------------------------------------------
+    # TOOL: set_mode – switches internal mode + Murf voice
+    # ------------------------------------------------------------------
+
+    @function_tool
+    async def set_mode(self, mode: str) -> str:
+        """
+        Change the learning mode and switch voice: 'learn', 'quiz', or 'teach_back'.
+
+        This is exposed as a tool to the LLM. It:
+          - stores the mode in session.userdata["tutor"]["mode"]
+          - switches Murf TTS voice using switch_session_voice(...)
+        """
+        m = (mode or "").strip().lower()
+        if m not in ("learn", "quiz", "teach_back"):
+            return "Unknown mode. Please choose 'learn', 'quiz', or 'teach_back'."
+
+        # Ensure userdata is a dict we can write into
+        userdata: Dict[str, Any] = self.session.userdata or {}
+        tutor_state: Dict[str, Any] = userdata.get("tutor") or {}
+        tutor_state["mode"] = m
+        userdata["tutor"] = tutor_state
+        self.session.userdata = userdata
+
+        voice_map = {
+            "learn": VOICE_LEARN,
+            "quiz": VOICE_QUIZ,
+            "teach_back": VOICE_TEACH,
+        }
+        new_voice = voice_map.get(m, VOICE_LEARN)
+
+        switched = switch_session_voice(self.session, new_voice)
+        if not switched:
+            logger.warning("set_mode: voice switch to %s may not have taken effect.", new_voice)
+
+        # Friendly textual confirmation back to the user / LLM
+        if m == "learn":
+            return "Mode set to LEARN with Matthew. I’ll focus on explaining concepts clearly."
+        elif m == "quiz":
+            return "Mode set to QUIZ with Alicia. I’ll start asking you short questions."
+        else:
+            return "Mode set to TEACH-BACK with Ken. You’ll explain the concept in your own words."
+
+
+# -------------------------------------------------------------------
+# Worker entrypoint
+# -------------------------------------------------------------------
 
 
 def prewarm(proc: JobProcess):
@@ -194,13 +313,19 @@ async def entrypoint(ctx: JobContext):
     logger.info("Agent base directory: %s", base_dir)
     logger.info("Loaded Day 4 course content from: %s", DATA_PATH)
 
+    # Initial userdata: store tutor state + anything else you want later
+    initial_userdata: Dict[str, Any] = {
+        "tutor": {
+            "mode": "learn",  # default starting mode
+        }
+    }
+
     session = AgentSession(
         stt=deepgram.STT(model="nova-3"),
         llm=google.LLM(model="gemini-2.5-flash"),
-        # Stable, working Murf TTS (Matthew). Voices per mode are described by the LLM
-        # in its responses, but technically this one voice is used for all modes.
+        # Start with LEARN voice (Matthew); set_mode() will switch later
         tts=murf.TTS(
-            voice="en-US-matthew",
+            voice=VOICE_LEARN,
             style="Conversation",
             tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
             text_pacing=True,
@@ -208,6 +333,7 @@ async def entrypoint(ctx: JobContext):
         turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
         preemptive_generation=True,
+        userdata=initial_userdata,
     )
 
     usage_collector = metrics.UsageCollector()
@@ -222,8 +348,11 @@ async def entrypoint(ctx: JobContext):
 
     ctx.add_shutdown_callback(log_usage)
 
+    # Create agent and give it the session (session is also accessible as self.session)
+    agent = Assistant()
+
     await session.start(
-        agent=Assistant(),
+        agent=agent,
         room=ctx.room,
         room_input_options=RoomInputOptions(
             noise_cancellation=noise_cancellation.BVC(),
